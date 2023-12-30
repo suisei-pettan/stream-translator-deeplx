@@ -35,7 +35,10 @@ def _translate_by_gpt(client, translation_task, assistant_prompt, model, history
             response = requests.post(url, headers=headers, data=payload)
             if response.status_code == 200:
                 response_data = response.json()
-                translation_task.translated_text = response_data['data']
+                if not response_data['data']:
+                    translation_task.translated_text = "......"
+                else:
+                    translation_task.translated_text = response_data['data']
                 break
             else:
                 # Handle non-200 status codes
