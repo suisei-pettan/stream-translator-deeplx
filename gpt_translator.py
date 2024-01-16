@@ -24,8 +24,20 @@ def _translate_by_gpt(client, translation_task, assistant_prompt, model, history
         "target_lang": "ZH"
     })
     headers = {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        "authority": "api.deeplx.org",
+        "method": "POST",
+        "path": "/translate",
+        "scheme": "https",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Content-Length": "60",
+        "Content-Type": "application/json",
+        "Origin": "chrome-extension://bpoadfkcbjbfhfodiogcnhhhpibjhbnh",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "none",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     max_retries = 2
