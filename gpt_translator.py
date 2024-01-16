@@ -1,25 +1,24 @@
 import queue
 import threading
 import time
+import openai
+import json
+import requests
 from collections import deque
 from datetime import datetime, timedelta
-import requests
-import json
-
-from requests.exceptions import SSLError
+from requests.exceptions import RequestException, SSLError
 from openai import OpenAI, APITimeoutError, APIConnectionError
 
 from common import TranslationTask
 
 
-def _translate_by_gpt(client, translation_task, assistant_prompt, model, history_messages=[]):
-    if not translation_task.transcribed_text:
-        translation_task.translated_text = "......"
-        return
+def translate_text(text_to_translate):
+    if not text_to_translate:
+        return "......"
 
     url = "https://api.deeplx.org/translate"
     payload = json.dumps({
-        "text": translation_task.transcribed_text,
+        "text": text_to_translate,
         "source_lang": "auto",
         "target_lang": "ZH"
     })
@@ -40,34 +39,47 @@ def _translate_by_gpt(client, translation_task, assistant_prompt, model, history
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    max_retries = 2
-    attempts = 0
+    try:
+        response = requests.post(url, headers=headers, data=payload)
+        if response.status_code == 200:
+            response_data = response.json()
+            return response_data['data'] if response_data['data'] else "......"
+        else:
+            return "Error: Non-200 status code received"
+    except SSLError:
+        return "SSL Error occurred"
+    except RequestException as e:
+        return f"Request error: {e}"
 
-    while attempts <= max_retries:
-        try:
-            response = requests.post(url, headers=headers, data=payload)
-            if response.status_code == 200:
-                response_data = response.json()
-                if not response_data['data']:
-                    translation_task.translated_text = "......"
-                else:
-                    translation_task.translated_text = response_data['data']
-                break
-            else:
-                # Handle non-200 status codes
-                attempts += 1
-        except SSLError as ssl_error:
-            # Specifically catch SSLError and retry
-            # print(f"SSL error occurred: {ssl_error}. Attempt {attempts+1} of {max_retries}.")
-            attempts += 1
-        except requests.RequestException as e:
-            # Handle other request exceptions
-            # print(f"An error occurred: {e}. Attempt {attempts+1} of {max_retries}.")
-            attempts += 1
-        time.sleep(0.5)
 
-    if attempts > max_retries:
-        print("Max retries exceeded. Failed to get a successful response.")
+def _translate_by_gpt(client: OpenAI,
+                      translation_task: TranslationTask,
+                      assistant_prompt: str,
+                      model: str,
+                      history_messages: list = []):
+    # https://platform.openai.com/docs/api-reference/chat/create?lang=python
+    try:
+        url = 'http://127.0.0.1:3000/api/v1/chat/completions'
+        headers = {'Content-Type': 'application/json'}
+        data = {
+            "messages": [{"role": "user",
+                          "content": "Take a deep breath and translate the following Japanese sentences into Chinese, output only the translation, and do not have extra words, don't use web searches. The sentence is as follows:遊びましょ"},
+                         {"role": "assistant", "content": "让我们一起玩吧"}, {"role": "user",
+                                                                              "content": "Take a deep breath and translate the following Japanese sentences into Chinese, output only the translation, and do not have extra words, don't use web searches. The sentence is as follows:" + translation_task.transcribed_text}],
+            "stream": False,
+            "model": "Precise"
+        }
+
+        response = requests.post(url, headers=headers, json=data, verify=False)
+
+        # 将响应文本解析为JSON
+        response_json = response.json()
+
+        # 提取content的值
+        content = response_json["choices"][0]["delta"]["content"]
+        translation_task.translated_text = content
+    except (APITimeoutError, APIConnectionError) as e:
+        print("API error: {}".format(e))
 
 
 class ParallelTranslator():
@@ -76,7 +88,7 @@ class ParallelTranslator():
         self.prompt = prompt
         self.model = model
         self.timeout = timeout
-        self.client = OpenAI()
+        self.client = OpenAI(base_url="http://127.0.0.1:3000/api/v1")
         self.processing_queue = deque()
 
     def trigger(self, translation_task: TranslationTask):
@@ -95,7 +107,8 @@ class ParallelTranslator():
             task = self.processing_queue.popleft()
             results.append(task)
             if not task.translated_text:
-                print("Translation timeout or failed: {}".format(task.transcribed_text))
+                print(
+                    '\033[1m' + "GPT翻译超时,回落到deepl\n" + translate_text(task.transcribed_text) + '\033[0m' + "\n")
         return results
 
     def work(self, input_queue: queue.SimpleQueue[TranslationTask],
